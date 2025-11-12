@@ -12,8 +12,8 @@ from urllib.parse import urlparse
 
 import filetype
 import pyotp
-from httpx import AsyncClient, AsyncHTTPTransport, Response
-from httpx._utils import URLPattern
+from rnet import Client as RnetClient, Response
+from rnet.emulation import Emulation, EmulationOption
 
 from .._captcha import Capsolver
 from ..bookmark import BookmarkFolder
@@ -53,8 +53,7 @@ from ..utils import (
     build_tweet_data,
     build_user_data,
     find_dict,
-    find_entry_by_type,
-    httpx_transport_to_url
+    find_entry_by_type
 )
 from ..x_client_transaction.utils import handle_x_migration
 from ..x_client_transaction import ClientTransaction
@@ -95,18 +94,28 @@ class Client:
         proxy: str | None = None,
         captcha_solver: Capsolver | None = None,
         user_agent: str | None = None,
+        emulation: Emulation | None = None,
         **kwargs
     ) -> None:
         if 'proxies' in kwargs:
             message = (
                 "The 'proxies' argument is now deprecated. Use 'proxy' "
-                "instead. https://github.com/encode/httpx/pull/2879"
+                "instead."
             )
             warnings.warn(message)
 
-        self.http = AsyncClient(proxy=proxy, **kwargs)
+        # Set up emulation with user agent or use Safari emulation by default
+        if emulation is None:
+            emulation = Emulation.Safari17_5
+
+        self.http = RnetClient(
+            proxy=proxy,
+            emulation=emulation,
+            tls_info=True,
+            **kwargs
+        )
         self.language = language
-        self.proxy = proxy
+        self._proxy = proxy
         self.captcha_solver = captcha_solver
         if captcha_solver is not None:
             captcha_solver.client = self
@@ -116,6 +125,7 @@ class Client:
         self._user_id = None
         self._user_agent = user_agent or 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15'
         self._act_as = None
+        self._emulation = emulation
 
         self.gql = GQLClient(self)
         self.v11 = V11Client(self)
@@ -225,16 +235,18 @@ class Client:
     @property
     def proxy(self) -> str:
         ':meta private:'
-        transport: AsyncHTTPTransport = self.http._mounts.get(URLPattern('all://'))
-        if transport is None:
-            return None
-        if not hasattr(transport._pool, '_proxy_url'):
-            return None
-        return httpx_transport_to_url(transport)
+        return self._proxy
 
     @proxy.setter
     def proxy(self, url: str) -> None:
-        self.http._mounts = {URLPattern('all://'): AsyncHTTPTransport(proxy=url)}
+        ':meta private:'
+        self._proxy = url
+        # Recreate client with new proxy
+        self.http = RnetClient(
+            proxy=url,
+            emulation=self._emulation,
+            tls_info=True
+        )
 
     def _get_csrf_token(self) -> str:
         """

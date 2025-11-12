@@ -7,7 +7,7 @@ from .user import User
 from .utils import build_user_data
 
 if TYPE_CHECKING:
-    from httpx import Response
+    from rnet import Response
 
     from .client.client import Client
     from .utils import Result

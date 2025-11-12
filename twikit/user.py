@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Literal
 from .utils import timestamp_to_datetime
 
 if TYPE_CHECKING:
-    from httpx import Response
+    from rnet import Response
 
     from .client.client import Client
     from .message import Message

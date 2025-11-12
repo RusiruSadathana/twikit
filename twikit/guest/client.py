@@ -6,8 +6,8 @@ from functools import partial
 from typing import Any, Literal
 from urllib.parse import urlparse
 
-from httpx import AsyncClient, AsyncHTTPTransport, Response
-from httpx._utils import URLPattern
+from rnet import Client as RnetClient, Response
+from rnet.emulation import Emulation, EmulationOption
 
 from ..client.gql import GQLClient
 from ..client.v11 import V11Client
@@ -22,7 +22,7 @@ from ..errors import (
     TwitterException,
     Unauthorized
 )
-from ..utils import Result, find_dict, find_entry_by_type, httpx_transport_to_url
+from ..utils import Result, find_dict, find_entry_by_type
 from ..x_client_transaction import ClientTransaction
 from .tweet import Tweet
 from .user import User
@@ -74,24 +74,35 @@ class GuestClient:
         self,
         language: str = 'en-US',
         proxy: str | None = None,
+        emulation: Emulation | None = None,
         **kwargs
     ) -> None:
         if 'proxies' in kwargs:
             message = (
                 "The 'proxies' argument is now deprecated. Use 'proxy' "
-                "instead. https://github.com/encode/httpx/pull/2879"
+                "instead."
             )
             warnings.warn(message)
 
-        self.http = AsyncClient(proxy=proxy, **kwargs)
+        # Set up emulation or use Chrome emulation by default for guest client
+        if emulation is None:
+            emulation = Emulation.Chrome122
+
+        self.http = RnetClient(
+            proxy=proxy,
+            emulation=emulation,
+            tls_info=True,
+            **kwargs
+        )
         self.language = language
-        self.proxy = proxy
+        self._proxy = proxy
 
         self._token = TOKEN
         self._user_agent = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
                             'AppleWebKit/537.36 (KHTML, like Gecko) '
                             'Chrome/122.0.0.0 Safari/537.36')
         self._guest_token: str | None = None  # set when activate method is called
+        self._emulation = emulation
         self.gql = GQLClient(self)
         self.v11 = V11Client(self)
         self.client_transaction = ClientTransaction()
@@ -161,20 +172,18 @@ class GuestClient:
     @property
     def proxy(self) -> str:
         ':meta private:'
-        transport: AsyncHTTPTransport = self.http._mounts.get(
-            URLPattern('all://')
-        )
-        if transport is None:
-            return None
-        if not hasattr(transport._pool, '_proxy_url'):
-            return None
-        return httpx_transport_to_url(transport)
+        return self._proxy
 
     @proxy.setter
     def proxy(self, url: str) -> None:
-        self.http._mounts = {
-            URLPattern('all://'): AsyncHTTPTransport(proxy=url)
-        }
+        ':meta private:'
+        self._proxy = url
+        # Recreate client with new proxy
+        self.http = RnetClient(
+            proxy=url,
+            emulation=self._emulation,
+            tls_info=True
+        )
 
     @property
     def _base_headers(self) -> dict[str, str]:
