@@ -141,7 +141,22 @@ class GuestClient:
         if 'cookies' not in kwargs and self._cookies:
             kwargs['cookies'] = self._cookies.to_dict()
 
-        response = await self.http.request(method, url, headers=headers, **kwargs)
+        # Call appropriate rnet method based on HTTP method string
+        method_upper = method.upper()
+        if method_upper == 'GET':
+            response = await self.http.get(url, headers=headers, **kwargs)
+        elif method_upper == 'POST':
+            response = await self.http.post(url, headers=headers, **kwargs)
+        elif method_upper == 'PUT':
+            response = await self.http.put(url, headers=headers, **kwargs)
+        elif method_upper == 'DELETE':
+            response = await self.http.delete(url, headers=headers, **kwargs)
+        elif method_upper == 'PATCH':
+            response = await self.http.patch(url, headers=headers, **kwargs)
+        elif method_upper == 'HEAD':
+            response = await self.http.head(url, headers=headers, **kwargs)
+        else:
+            raise ValueError(f'Unsupported HTTP method: {method}')
 
         # Extract cookies from response
         self._cookies.from_response(response)
