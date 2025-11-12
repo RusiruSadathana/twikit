@@ -6,7 +6,12 @@ from functools import partial
 from typing import Any, Literal
 from urllib.parse import urlparse
 
-from rnet import Client as RnetClient, Response, Emulation
+from rnet import Client as RnetClient, Response
+try:
+    from rnet.emulation import Emulation
+except ImportError:
+    # Fallback if emulation is not available in this rnet version
+    from rnet import Emulation
 
 from ..client.client import CookieJar
 from ..client.gql import GQLClient
