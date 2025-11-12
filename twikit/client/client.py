@@ -69,34 +69,64 @@ class CookieJar:
 
     def from_response(self, response: Response):
         """Extract cookies from response Set-Cookie headers"""
-        # rnet Response.headers might be a dict-like object or have get_list method
-        try:
-            # Try get_list first (common in some HTTP libraries)
-            set_cookie_headers = response.headers.get_list('set-cookie')
-        except AttributeError:
-            # Fall back to getting all set-cookie headers manually
-            # In case headers is a dict or multidict
-            headers_dict = dict(response.headers) if hasattr(response.headers, 'items') else response.headers
-            set_cookie_value = headers_dict.get('set-cookie') or headers_dict.get('Set-Cookie')
-            if set_cookie_value:
-                set_cookie_headers = [set_cookie_value] if isinstance(set_cookie_value, str) else set_cookie_value
-            else:
-                set_cookie_headers = []
+        set_cookie_headers = []
 
-        if set_cookie_headers:
-            for cookie_str in set_cookie_headers:
-                # Parse cookie string
-                cookie = SimpleCookie()
+        # Try various methods to get Set-Cookie headers from rnet Response
+        if hasattr(response, 'headers'):
+            headers = response.headers
+
+            # Try to get as list (some libraries support this)
+            if hasattr(headers, 'get_list'):
                 try:
-                    cookie.load(cookie_str)
+                    set_cookie_headers = headers.get_list('set-cookie')
+                except:
+                    pass
+
+            # Try to get as multi-value from getlist or get_all
+            if not set_cookie_headers and hasattr(headers, 'getlist'):
+                try:
+                    set_cookie_headers = headers.getlist('set-cookie')
+                except:
+                    pass
+
+            # Try to iterate through headers and find set-cookie
+            if not set_cookie_headers:
+                try:
+                    # rnet might store headers as list of tuples
+                    if hasattr(headers, '__iter__'):
+                        for item in headers:
+                            if isinstance(item, tuple) and len(item) == 2:
+                                key, value = item
+                                if isinstance(key, (str, bytes)) and isinstance(value, (str, bytes)):
+                                    key_str = key.decode() if isinstance(key, bytes) else key
+                                    value_str = value.decode() if isinstance(value, bytes) else value
+                                    if key_str.lower() == 'set-cookie':
+                                        set_cookie_headers.append(value_str)
+                except:
+                    pass
+
+        # Parse and store cookies
+        if set_cookie_headers:
+            for cookie_item in set_cookie_headers:
+                # Skip non-string values
+                if not isinstance(cookie_item, str):
+                    continue
+
+                try:
+                    # Try using SimpleCookie for proper parsing
+                    cookie = SimpleCookie()
+                    cookie.load(cookie_item)
                     for key, morsel in cookie.items():
                         self._cookies[key] = morsel.value
                 except Exception:
                     # If parsing fails, try simple key=value extraction
-                    if '=' in cookie_str:
-                        parts = cookie_str.split(';')[0].split('=', 1)
-                        if len(parts) == 2:
-                            self._cookies[parts[0].strip()] = parts[1].strip()
+                    try:
+                        if '=' in cookie_item:
+                            parts = cookie_item.split(';')[0].split('=', 1)
+                            if len(parts) == 2:
+                                self._cookies[parts[0].strip()] = parts[1].strip()
+                    except:
+                        pass
 from ..bookmark import BookmarkFolder
 from ..community import Community, CommunityMember
 from ..constants import TOKEN, DOMAIN
