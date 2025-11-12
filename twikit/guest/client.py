@@ -7,11 +7,14 @@ from typing import Any, Literal
 from urllib.parse import urlparse
 
 from rnet import Client as RnetClient, Response
+
+# Try to import Emulation, set to None if not available
 try:
     from rnet.emulation import Emulation
+    HAS_EMULATION = True
 except ImportError:
-    # Fallback if emulation is not available in this rnet version
-    from rnet import Emulation
+    Emulation = None
+    HAS_EMULATION = False
 
 from ..client.client import CookieJar
 from ..client.gql import GQLClient
@@ -79,7 +82,7 @@ class GuestClient:
         self,
         language: str = 'en-US',
         proxy: str | None = None,
-        emulation: Emulation | None = None,
+        emulation: Any = None,
         **kwargs
     ) -> None:
         if 'proxies' in kwargs:
@@ -90,15 +93,19 @@ class GuestClient:
             warnings.warn(message)
 
         # Set up emulation or use Chrome emulation by default for guest client
-        if emulation is None:
+        if emulation is None and HAS_EMULATION and Emulation is not None:
             emulation = Emulation.Chrome122
 
-        self.http = RnetClient(
-            proxy=proxy,
-            emulation=emulation,
-            tls_info=True,
+        # Initialize rnet client with or without emulation
+        rnet_params = {
+            'proxy': proxy,
+            'tls_info': True,
             **kwargs
-        )
+        }
+        if emulation is not None:
+            rnet_params['emulation'] = emulation
+
+        self.http = RnetClient(**rnet_params)
         self.language = language
         self._proxy = proxy
 
