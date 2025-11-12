@@ -11,16 +11,16 @@ async def handle_x_migration(session, headers):
 
     # Use specific method instead of generic request()
     response = await session.get("https://x.com", headers=headers)
-    # rnet.Response uses .body for bytes content (not .content)
-    response_body = await response.body if callable(getattr(response, 'body', None)) else response.body
-    home_page = bs4.BeautifulSoup(response_body, 'lxml')
+    # Get text/bytes content from rnet Response - BeautifulSoup can handle both
+    response_content = await response.text() if callable(getattr(response, 'text', None)) else (response.text if hasattr(response, 'text') else await response.aread())
+    home_page = bs4.BeautifulSoup(response_content, 'lxml')
     migration_url = home_page.select_one("meta[http-equiv='refresh']")
     migration_redirection_url = re.search(migration_redirection_regex, str(
-        migration_url)) or re.search(migration_redirection_regex, str(response_body))
+        migration_url)) or re.search(migration_redirection_regex, str(response_content))
     if migration_redirection_url:
         response = await session.get(migration_redirection_url.group(0), headers=headers)
-        response_body = await response.body if callable(getattr(response, 'body', None)) else response.body
-        home_page = bs4.BeautifulSoup(response_body, 'lxml')
+        response_content = await response.text() if callable(getattr(response, 'text', None)) else (response.text if hasattr(response, 'text') else await response.aread())
+        home_page = bs4.BeautifulSoup(response_content, 'lxml')
     migration_form = home_page.select_one("form[name='f']") or home_page.select_one(f"form[action='https://x.com/x/migrate']")
     if migration_form:
         url = migration_form.attrs.get("action", "https://x.com/x/migrate") + "/?mx=2"
@@ -33,8 +33,8 @@ async def handle_x_migration(session, headers):
         else:
             response = await session.get(url, headers=headers)
 
-        response_body = await response.body if callable(getattr(response, 'body', None)) else response.body
-        home_page = bs4.BeautifulSoup(response_body, 'lxml')
+        response_content = await response.text() if callable(getattr(response, 'text', None)) else (response.text if hasattr(response, 'text') else await response.aread())
+        home_page = bs4.BeautifulSoup(response_content, 'lxml')
     return home_page
 
 
