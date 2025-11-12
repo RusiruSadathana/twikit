@@ -46,8 +46,8 @@ class ClientTransaction:
         if on_demand_file:
             on_demand_file_url = f"https://abs.twimg.com/responsive-web/client-web/ondemand.s.{on_demand_file.group(1)}a.js"
             on_demand_file_response = await session.get(on_demand_file_url, headers=headers)
-            # Get text content from rnet Response
-            response_text = await on_demand_file_response.text() if callable(getattr(on_demand_file_response, 'text', None)) else on_demand_file_response.text
+            # rnet.Response.text() is always async
+            response_text = await on_demand_file_response.text()
             key_byte_indices_match = INDICES_REGEX.finditer(str(response_text))
             for item in key_byte_indices_match:
                 key_byte_indices.append(item.group(2))

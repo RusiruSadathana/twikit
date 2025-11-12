@@ -297,10 +297,10 @@ class Client:
         self._remove_duplicate_ct0_cookie()
 
         try:
-            response_data = response.json()
+            response_data = await response.json()
         except json.decoder.JSONDecodeError:
-            # Handle both property and method for .text
-            response_data = await response.text() if callable(getattr(response, 'text', None)) else response.text
+            # rnet.Response.text() is always async
+            response_data = await response.text()
 
         if isinstance(response_data, dict) and 'errors' in response_data:
             error_code = response_data['errors'][0]['code']
@@ -329,15 +329,17 @@ class Client:
                         response = await self.http.request(method, url, headers=headers, **kwargs)
                     self._remove_duplicate_ct0_cookie()
                     try:
-                        response_data = response.json()
+                        response_data = await response.json()
                     except json.decoder.JSONDecodeError:
-                        response_data = await response.text() if callable(getattr(response, 'text', None)) else response.text
+                        # rnet.Response.text() is always async
+                        response_data = await response.text()
 
         # rnet.Response uses .status.as_int() to get status code as integer
         status_code = response.status.as_int()
 
         if status_code >= 400 and raise_exception:
-            response_text = await response.text() if callable(getattr(response, 'text', None)) else response.text
+            # rnet.Response.text() is always async
+            response_text = await response.text()
             message = f'status: {status_code}, message: "{response_text}"'
             if status_code == 400:
                 raise BadRequest(message, headers=response.headers)

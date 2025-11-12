@@ -11,15 +11,16 @@ async def handle_x_migration(session, headers):
 
     # Use specific method instead of generic request()
     response = await session.get("https://x.com", headers=headers)
-    # Get text/bytes content from rnet Response - BeautifulSoup can handle both
-    response_content = await response.text() if callable(getattr(response, 'text', None)) else (response.text if hasattr(response, 'text') else await response.aread())
+    # rnet.Response.text() is always async
+    response_content = await response.text()
     home_page = bs4.BeautifulSoup(response_content, 'lxml')
     migration_url = home_page.select_one("meta[http-equiv='refresh']")
     migration_redirection_url = re.search(migration_redirection_regex, str(
         migration_url)) or re.search(migration_redirection_regex, str(response_content))
     if migration_redirection_url:
         response = await session.get(migration_redirection_url.group(0), headers=headers)
-        response_content = await response.text() if callable(getattr(response, 'text', None)) else (response.text if hasattr(response, 'text') else await response.aread())
+        # rnet.Response.text() is always async
+        response_content = await response.text()
         home_page = bs4.BeautifulSoup(response_content, 'lxml')
     migration_form = home_page.select_one("form[name='f']") or home_page.select_one(f"form[action='https://x.com/x/migrate']")
     if migration_form:
@@ -33,7 +34,8 @@ async def handle_x_migration(session, headers):
         else:
             response = await session.get(url, headers=headers)
 
-        response_content = await response.text() if callable(getattr(response, 'text', None)) else (response.text if hasattr(response, 'text') else await response.aread())
+        # rnet.Response.text() is always async
+        response_content = await response.text()
         home_page = bs4.BeautifulSoup(response_content, 'lxml')
     return home_page
 

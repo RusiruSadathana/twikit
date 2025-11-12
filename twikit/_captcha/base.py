@@ -37,7 +37,8 @@ class CaptchaSolver:
         _, response = await self.client.get(
             self.CAPTCHA_URL, headers=headers
         )
-        response_text = await response.text() if callable(getattr(response, 'text', None)) else response.text
+        # rnet.Response.text() is always async
+        response_text = await response.text()
         return response, parse_unlock_html(response_text)
 
     async def ui_metrix(self) -> str:
@@ -74,7 +75,8 @@ class CaptchaSolver:
         _, response = await self.client.post(
             self.CAPTCHA_URL, params=params, data=data, headers=headers
         )
-        response_text = await response.text() if callable(getattr(response, 'text', None)) else response.text
+        # rnet.Response.text() is always async
+        response_text = await response.text()
         return response, parse_unlock_html(response_text)
 
 
