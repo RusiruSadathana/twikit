@@ -1,4 +1,5 @@
-rnet
+asyncio
+rnet==3.0.0rc12
 httpx
 filetype
 beautifulsoup4
