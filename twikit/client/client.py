@@ -100,6 +100,57 @@ class CookieJar:
         return [(c.name, c.value) for c in cookies]
 
 
+class HeadersWrapper:
+    """Wrapper to provide httpx-compatible headers (str keys/values) over rnet's HeaderMap (bytes keys/values)"""
+
+    def __init__(self, rnet_headers):
+        self._headers = rnet_headers
+        self._cache = None
+
+    def _to_dict(self) -> dict:
+        """Convert HeaderMap with bytes to dict with strings"""
+        if self._cache is None:
+            self._cache = {}
+            # Iterate over HeaderMap which returns (bytes, bytes) tuples
+            for key, value in self._headers:
+                # Decode bytes to strings
+                key_str = key.decode('utf-8') if isinstance(key, bytes) else key
+                value_str = value.decode('utf-8') if isinstance(value, bytes) else value
+                self._cache[key_str] = value_str
+        return self._cache
+
+    def get(self, key: str, default=None):
+        """Get header value by key"""
+        return self._to_dict().get(key, default)
+
+    def __getitem__(self, key: str):
+        """Get header value using subscript notation"""
+        return self._to_dict()[key]
+
+    def __iter__(self):
+        """Iterate over header keys"""
+        return iter(self._to_dict())
+
+    def items(self):
+        """Return header items as (key, value) tuples"""
+        return self._to_dict().items()
+
+    def keys(self):
+        """Return header keys"""
+        return self._to_dict().keys()
+
+    def values(self):
+        """Return header values"""
+        return self._to_dict().values()
+
+    def __contains__(self, key: str):
+        """Check if header exists"""
+        return key in self._to_dict()
+
+    def __repr__(self):
+        return repr(self._to_dict())
+
+
 class ResponseWrapper:
     """Wrapper to provide httpx-compatible Response interface over rnet's Response"""
 
@@ -108,6 +159,8 @@ class ResponseWrapper:
         self._text_content = text_content
         self._bytes_content = bytes_content
         self._json_content = json_content
+        # Wrap headers to convert bytes to strings
+        self._headers_wrapper = HeadersWrapper(rnet_response.headers)
 
     @property
     def status_code(self) -> int:
@@ -122,7 +175,8 @@ class ResponseWrapper:
 
     @property
     def headers(self):
-        return self._response.headers
+        """Return headers as dict-like object with string keys/values (httpx compatibility)"""
+        return self._headers_wrapper
 
     @property
     def url(self):
