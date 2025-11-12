@@ -269,7 +269,8 @@ class Client:
         try:
             response_data = response.json()
         except json.decoder.JSONDecodeError:
-            response_data = response.text
+            # Handle both property and method for .text
+            response_data = await response.text() if callable(getattr(response, 'text', None)) else response.text
 
         if isinstance(response_data, dict) and 'errors' in response_data:
             error_code = response_data['errors'][0]['code']
@@ -288,17 +289,25 @@ class Client:
                 if auto_unlock:
                     await self.unlock()
                     self.set_cookies(cookies_backup, clear_cookies=True)
-                    response = await self.http.request(method, url, **kwargs)
+                    # Retry the request after unlocking using the appropriate method
+                    method_upper = method.upper()
+                    if method_upper == 'GET':
+                        response = await self.http.get(url, headers=headers, **kwargs)
+                    elif method_upper == 'POST':
+                        response = await self.http.post(url, headers=headers, **kwargs)
+                    else:
+                        response = await self.http.request(method, url, headers=headers, **kwargs)
                     self._remove_duplicate_ct0_cookie()
                     try:
                         response_data = response.json()
                     except json.decoder.JSONDecodeError:
-                        response_data = response.text
+                        response_data = await response.text() if callable(getattr(response, 'text', None)) else response.text
 
         status_code = response.status_code
 
         if status_code >= 400 and raise_exception:
-            message = f'status: {status_code}, message: "{response.text}"'
+            response_text = await response.text() if callable(getattr(response, 'text', None)) else response.text
+            message = f'status: {status_code}, message: "{response_text}"'
             if status_code == 400:
                 raise BadRequest(message, headers=response.headers)
             elif status_code == 401:

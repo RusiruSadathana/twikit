@@ -100,7 +100,8 @@ class Media:
 
     async def get(self) -> bytes:
         response = await self._client.http.get(self.media_url)
-        return response.content
+        # rnet.Response uses .body for bytes content (not .content)
+        return await response.body if callable(getattr(response, 'body', None)) else response.body
 
     async def download(self, output_path: str) -> None:
         with open(output_path, 'wb') as f:
@@ -163,7 +164,8 @@ class Stream:
             The raw content of the stream.
         """
         response = await self._client.http.get(self.url)
-        return response.content
+        # rnet.Response uses .body for bytes content (not .content)
+        return await response.body if callable(getattr(response, 'body', None)) else response.body
 
     async def download(self, output_path: str) -> None:
         """

@@ -164,12 +164,14 @@ class GuestClient:
         try:
             response_data = response.json()
         except json.decoder.JSONDecodeError:
-            response_data = response.text
+            # Handle both property and method for .text
+            response_data = await response.text() if callable(getattr(response, 'text', None)) else response.text
 
         status_code = response.status_code
 
         if status_code >= 400 and raise_exception:
-            message = f'status: {status_code}, message: "{response.text}"'
+            response_text = await response.text() if callable(getattr(response, 'text', None)) else response.text
+            message = f'status: {status_code}, message: "{response_text}"'
             if status_code == 400:
                 raise BadRequest(message, headers=response.headers)
             elif status_code == 401:

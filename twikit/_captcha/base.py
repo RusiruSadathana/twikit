@@ -37,7 +37,8 @@ class CaptchaSolver:
         _, response = await self.client.get(
             self.CAPTCHA_URL, headers=headers
         )
-        return response, parse_unlock_html(response.text)
+        response_text = await response.text() if callable(getattr(response, 'text', None)) else response.text
+        return response, parse_unlock_html(response_text)
 
     async def ui_metrix(self) -> str:
         js, _ = await self.client.get(
@@ -73,7 +74,8 @@ class CaptchaSolver:
         _, response = await self.client.post(
             self.CAPTCHA_URL, params=params, data=data, headers=headers
         )
-        return response, parse_unlock_html(response.text)
+        response_text = await response.text() if callable(getattr(response, 'text', None)) else response.text
+        return response, parse_unlock_html(response_text)
 
 
 def parse_unlock_html(html: str) -> UnlockHTML:
