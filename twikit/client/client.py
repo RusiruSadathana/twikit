@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 
 import filetype
 import pyotp
-from rnet import Client as RnetClient, Response, Jar, Emulation
+from rnet import Client as RnetClient, Response, Jar, Emulation, Method
 
 from .._captcha import Capsolver
 from ..bookmark import BookmarkFolder
@@ -103,8 +103,10 @@ class CookieJar:
 class ResponseWrapper:
     """Wrapper to provide httpx-compatible Response interface over rnet's Response"""
 
-    def __init__(self, rnet_response: Response):
+    def __init__(self, rnet_response: Response, text_content: str = None, json_content: dict = None):
         self._response = rnet_response
+        self._text_content = text_content
+        self._json_content = json_content
 
     @property
     def status_code(self) -> int:
@@ -127,13 +129,20 @@ class ResponseWrapper:
     def cookies(self):
         return self._response.cookies
 
-    async def json(self):
-        """Get response as JSON"""
-        return await self._response.json()
+    @property
+    def text(self) -> str:
+        """Get response text (httpx compatibility - synchronous property)"""
+        if self._text_content is None:
+            raise RuntimeError("Response text not loaded. This should not happen.")
+        return self._text_content
 
-    async def text(self):
-        """Get response as text"""
-        return await self._response.text()
+    def json(self):
+        """Get response as JSON (httpx compatibility - synchronous method)"""
+        if self._json_content is not None:
+            return self._json_content
+        # Parse from text if not pre-parsed
+        import json as json_lib
+        return json_lib.loads(self._text_content)
 
     async def read(self):
         """Get response as bytes (httpx compatibility for .read())"""
@@ -148,6 +157,18 @@ class ResponseWrapper:
 
 class AsyncClient:
     """Wrapper to provide httpx-like interface over rnet's Client"""
+
+    # Map string methods to Method enum
+    _METHOD_MAP = {
+        'GET': Method.GET,
+        'POST': Method.POST,
+        'PUT': Method.PUT,
+        'DELETE': Method.DELETE,
+        'PATCH': Method.PATCH,
+        'HEAD': Method.HEAD,
+        'OPTIONS': Method.OPTIONS,
+        'TRACE': Method.TRACE,
+    }
 
     def __init__(self, proxy: str | None = None, **kwargs):
         self._jar = Jar()
@@ -168,30 +189,54 @@ class AsyncClient:
         self._client = RnetClient(**client_kwargs)
         self.cookies = CookieJar(self._jar)
 
+    def _convert_method(self, method: str) -> Method:
+        """Convert string method to Method enum"""
+        method_upper = method.upper()
+        if method_upper not in self._METHOD_MAP:
+            raise ValueError(f"Unsupported HTTP method: {method}")
+        return self._METHOD_MAP[method_upper]
+
+    async def _wrap_response(self, resp: Response) -> ResponseWrapper:
+        """Wrap rnet Response and eagerly fetch body for httpx compatibility"""
+        # Fetch the response body as text (needed for sync access in httpx compatibility)
+        text_content = await resp.text()
+
+        # Try to parse as JSON if possible
+        json_content = None
+        try:
+            import json as json_lib
+            json_content = json_lib.loads(text_content)
+        except (json_lib.JSONDecodeError, ValueError):
+            # Not JSON, that's fine
+            pass
+
+        return ResponseWrapper(resp, text_content=text_content, json_content=json_content)
+
     async def request(self, method: str, url: str, **kwargs) -> ResponseWrapper:
         """Make an HTTP request"""
-        resp = await self._client.request(method, url, **kwargs)
-        return ResponseWrapper(resp)
+        rnet_method = self._convert_method(method)
+        resp = await self._client.request(rnet_method, url, **kwargs)
+        return await self._wrap_response(resp)
 
     async def get(self, url: str, **kwargs) -> ResponseWrapper:
         """Make a GET request"""
         resp = await self._client.get(url, **kwargs)
-        return ResponseWrapper(resp)
+        return await self._wrap_response(resp)
 
     async def post(self, url: str, **kwargs) -> ResponseWrapper:
         """Make a POST request"""
         resp = await self._client.post(url, **kwargs)
-        return ResponseWrapper(resp)
+        return await self._wrap_response(resp)
 
     async def put(self, url: str, **kwargs) -> ResponseWrapper:
         """Make a PUT request"""
         resp = await self._client.put(url, **kwargs)
-        return ResponseWrapper(resp)
+        return await self._wrap_response(resp)
 
     async def delete(self, url: str, **kwargs) -> ResponseWrapper:
         """Make a DELETE request"""
         resp = await self._client.delete(url, **kwargs)
-        return ResponseWrapper(resp)
+        return await self._wrap_response(resp)
 
 
 class Client:
