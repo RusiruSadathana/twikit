@@ -1,4 +1,4 @@
-rnet>=3.0.0rc12
+rnet==3.0.0rc12
 filetype
 beautifulsoup4
 pyotp
