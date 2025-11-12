@@ -12,8 +12,7 @@ from urllib.parse import urlparse
 
 import filetype
 import pyotp
-from httpx import AsyncClient, AsyncHTTPTransport, Response
-from httpx._utils import URLPattern
+from rnet import Client as RnetClient, Response, Jar, Emulation
 
 from .._captcha import Capsolver
 from ..bookmark import BookmarkFolder
@@ -53,13 +52,146 @@ from ..utils import (
     build_tweet_data,
     build_user_data,
     find_dict,
-    find_entry_by_type,
-    httpx_transport_to_url
+    find_entry_by_type
 )
 from ..x_client_transaction.utils import handle_x_migration
 from ..x_client_transaction import ClientTransaction
 from .gql import GQLClient
 from .v11 import V11Client
+
+
+class CookieJar:
+    """Wrapper to provide httpx-like cookie interface over rnet's Jar"""
+
+    def __init__(self, jar: Jar):
+        self.jar = jar
+        self._url = "https://twitter.com"  # Default URL for cookie operations
+
+    def get(self, name: str, default=None) -> str | None:
+        """Get a cookie value by name"""
+        cookie_str = self.jar.get(name, self._url)
+        if cookie_str:
+            # Parse "name=value; ..." format
+            value = cookie_str.split('=', 1)[1].split(';')[0] if '=' in cookie_str else None
+            return value
+        return default
+
+    def update(self, cookies: dict) -> None:
+        """Update cookies from a dictionary"""
+        for name, value in cookies.items():
+            cookie_str = f"{name}={value}; Domain=twitter.com; Path=/"
+            self.jar.add_cookie_str(cookie_str, self._url)
+
+    def clear(self) -> None:
+        """Clear all cookies"""
+        self.jar.clear()
+
+    def __iter__(self):
+        """Iterate over cookies"""
+        return iter(self.jar.get_all())
+
+    def __getitem__(self, name: str) -> str:
+        """Get cookie value using subscript notation"""
+        return self.get(name)
+
+    def items(self):
+        """Return cookie items as (name, value) tuples"""
+        cookies = self.jar.get_all()
+        return [(c.name, c.value) for c in cookies]
+
+
+class ResponseWrapper:
+    """Wrapper to provide httpx-compatible Response interface over rnet's Response"""
+
+    def __init__(self, rnet_response: Response):
+        self._response = rnet_response
+
+    @property
+    def status_code(self) -> int:
+        """httpx compatibility: status_code maps to status"""
+        return self._response.status
+
+    @property
+    def status(self) -> int:
+        return self._response.status
+
+    @property
+    def headers(self):
+        return self._response.headers
+
+    @property
+    def url(self):
+        return self._response.url
+
+    @property
+    def cookies(self):
+        return self._response.cookies
+
+    async def json(self):
+        """Get response as JSON"""
+        return await self._response.json()
+
+    async def text(self):
+        """Get response as text"""
+        return await self._response.text()
+
+    async def read(self):
+        """Get response as bytes (httpx compatibility for .read())"""
+        return await self._response.bytes()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self._response.close()
+
+
+class AsyncClient:
+    """Wrapper to provide httpx-like interface over rnet's Client"""
+
+    def __init__(self, proxy: str | None = None, **kwargs):
+        self._jar = Jar()
+        self._proxy = proxy
+
+        # Configure rnet client with browser emulation for better compatibility
+        client_kwargs = {
+            'cookie_provider': self._jar,
+            'emulation': Emulation.Safari26,  # Use Safari emulation for Twitter
+        }
+
+        if proxy:
+            client_kwargs['proxy'] = proxy
+
+        # Merge any additional kwargs
+        client_kwargs.update(kwargs)
+
+        self._client = RnetClient(**client_kwargs)
+        self.cookies = CookieJar(self._jar)
+
+    async def request(self, method: str, url: str, **kwargs) -> ResponseWrapper:
+        """Make an HTTP request"""
+        resp = await self._client.request(method, url, **kwargs)
+        return ResponseWrapper(resp)
+
+    async def get(self, url: str, **kwargs) -> ResponseWrapper:
+        """Make a GET request"""
+        resp = await self._client.get(url, **kwargs)
+        return ResponseWrapper(resp)
+
+    async def post(self, url: str, **kwargs) -> ResponseWrapper:
+        """Make a POST request"""
+        resp = await self._client.post(url, **kwargs)
+        return ResponseWrapper(resp)
+
+    async def put(self, url: str, **kwargs) -> ResponseWrapper:
+        """Make a PUT request"""
+        resp = await self._client.put(url, **kwargs)
+        return ResponseWrapper(resp)
+
+    async def delete(self, url: str, **kwargs) -> ResponseWrapper:
+        """Make a DELETE request"""
+        resp = await self._client.delete(url, **kwargs)
+        return ResponseWrapper(resp)
 
 
 class Client:
@@ -127,7 +259,7 @@ class Client:
         auto_unlock: bool = True,
         raise_exception: bool = True,
         **kwargs
-    ) -> tuple[dict | Any, Response]:
+    ) -> tuple[dict | Any, ResponseWrapper]:
         ':meta private:'
         headers = kwargs.pop('headers', {})
 
@@ -206,35 +338,35 @@ class Client:
 
         return response_data, response
 
-    async def get(self, url, **kwargs) -> tuple[dict | Any, Response]:
+    async def get(self, url, **kwargs) -> tuple[dict | Any, ResponseWrapper]:
         ':meta private:'
         return await self.request('GET', url, **kwargs)
 
-    async def post(self, url, **kwargs) -> tuple[dict | Any, Response]:
+    async def post(self, url, **kwargs) -> tuple[dict | Any, ResponseWrapper]:
         ':meta private:'
         return await self.request('POST', url, **kwargs)
 
     def _remove_duplicate_ct0_cookie(self) -> None:
         cookies = {}
-        for cookie in self.http.cookies.jar:
+        for cookie in self.http.cookies:
             if 'ct0' in cookies and cookie.name == 'ct0':
                 continue
             cookies[cookie.name] = cookie.value
-        self.http.cookies = list(cookies.items())
+        # Clear and re-add unique cookies
+        self.http.cookies.clear()
+        self.http.cookies.update(cookies)
 
     @property
-    def proxy(self) -> str:
+    def proxy(self) -> str | None:
         ':meta private:'
-        transport: AsyncHTTPTransport = self.http._mounts.get(URLPattern('all://'))
-        if transport is None:
-            return None
-        if not hasattr(transport._pool, '_proxy_url'):
-            return None
-        return httpx_transport_to_url(transport)
+        return self.http._proxy
 
     @proxy.setter
     def proxy(self, url: str) -> None:
-        self.http._mounts = {URLPattern('all://'): AsyncHTTPTransport(proxy=url)}
+        ':meta private:'
+        self.http._proxy = url
+        # Recreate client with new proxy
+        self.http = AsyncClient(proxy=url)
 
     def _get_csrf_token(self) -> str:
         """

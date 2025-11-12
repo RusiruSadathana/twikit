@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, NamedTuple
+from typing import TYPE_CHECKING, NamedTuple, Any
 
 from bs4 import BeautifulSoup
-from httpx import Response
 from ..constants import DOMAIN
 
 if TYPE_CHECKING:
-    from ..client.client import Client
+    from ..client.client import Client, ResponseWrapper as Response
+else:
+    Response = Any
 
 
 class UnlockHTML(NamedTuple):

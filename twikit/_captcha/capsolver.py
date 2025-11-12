@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from time import sleep
 
-import httpx
+import rnet.blocking as rnet_blocking
 
 from .base import CaptchaSolver
 
@@ -52,24 +52,26 @@ class Capsolver(CaptchaSolver):
             'clientKey': self.api_key,
             'task': task_data
         }
-        response = httpx.post(
+        client = rnet_blocking.Client()
+        response = client.post(
             'https://api.capsolver.com/createTask',
             json=data,
             headers={'content-type': 'application/json'}
-        ).json()
-        return response
+        )
+        return response.json()
 
     def get_task_result(self, task_id: str) -> dict:
         data = {
             'clientKey': self.api_key,
             'taskId': task_id
         }
-        response = httpx.post(
+        client = rnet_blocking.Client()
+        response = client.post(
             'https://api.capsolver.com/getTaskResult',
             json=data,
             headers={'content-type': 'application/json'}
-        ).json()
-        return response
+        )
+        return response.json()
 
     def solve_funcaptcha(self, blob: str) -> dict:
         if self.client.proxy is None:

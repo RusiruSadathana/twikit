@@ -6,9 +6,7 @@ from functools import partial
 from typing import Any, Literal
 from urllib.parse import urlparse
 
-from httpx import AsyncClient, AsyncHTTPTransport, Response
-from httpx._utils import URLPattern
-
+from ..client.client import AsyncClient, ResponseWrapper
 from ..client.gql import GQLClient
 from ..client.v11 import V11Client
 from ..constants import DOMAIN, TOKEN
@@ -22,7 +20,7 @@ from ..errors import (
     TwitterException,
     Unauthorized
 )
-from ..utils import Result, find_dict, find_entry_by_type, httpx_transport_to_url
+from ..utils import Result, find_dict, find_entry_by_type
 from ..x_client_transaction import ClientTransaction
 from .tweet import Tweet
 from .user import User
@@ -102,7 +100,7 @@ class GuestClient:
         url: str,
         raise_exception: bool = True,
         **kwargs
-    ) -> tuple[dict | Any, Response]:
+    ) -> tuple[dict | Any, ResponseWrapper]:
         ':meta private:'
         headers = kwargs.pop('headers', {})
 
@@ -150,31 +148,25 @@ class GuestClient:
 
         return response_data, response
 
-    async def get(self, url, **kwargs) -> tuple[dict | Any, Response]:
+    async def get(self, url, **kwargs) -> tuple[dict | Any, ResponseWrapper]:
         ':meta private:'
         return await self.request('GET', url, **kwargs)
 
-    async def post(self, url, **kwargs) -> tuple[dict | Any, Response]:
+    async def post(self, url, **kwargs) -> tuple[dict | Any, ResponseWrapper]:
         ':meta private:'
         return await self.request('POST', url, **kwargs)
 
     @property
-    def proxy(self) -> str:
+    def proxy(self) -> str | None:
         ':meta private:'
-        transport: AsyncHTTPTransport = self.http._mounts.get(
-            URLPattern('all://')
-        )
-        if transport is None:
-            return None
-        if not hasattr(transport._pool, '_proxy_url'):
-            return None
-        return httpx_transport_to_url(transport)
+        return self.http._proxy
 
     @proxy.setter
     def proxy(self, url: str) -> None:
-        self.http._mounts = {
-            URLPattern('all://'): AsyncHTTPTransport(proxy=url)
-        }
+        ':meta private:'
+        self.http._proxy = url
+        # Recreate client with new proxy
+        self.http = AsyncClient(proxy=url)
 
     @property
     def _base_headers(self) -> dict[str, str]:

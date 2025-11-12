@@ -10,9 +10,7 @@ from .user import User
 from .utils import find_dict, timestamp_to_datetime
 
 if TYPE_CHECKING:
-    from httpx import Response
-
-    from .client.client import Client
+    from .client.client import Client, ResponseWrapper as Response
     from .utils import Result
 
 
