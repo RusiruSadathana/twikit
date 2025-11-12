@@ -7,6 +7,7 @@ import os
 
 import warnings
 from functools import partial
+from http.cookies import SimpleCookie
 from typing import Any, AsyncGenerator, Literal
 from urllib.parse import urlparse
 
@@ -16,6 +17,86 @@ from rnet import Client as RnetClient, Response
 from rnet.emulation import Emulation, EmulationOption
 
 from .._captcha import Capsolver
+
+
+class Cookie:
+    """Simple cookie representation for compatibility"""
+    def __init__(self, name: str, value: str):
+        self.name = name
+        self.value = value
+
+
+class CookieJar:
+    """Cookie jar implementation for rnet Client compatibility"""
+    def __init__(self):
+        self._cookies: dict[str, str] = {}
+
+    def clear(self):
+        """Clear all cookies"""
+        self._cookies.clear()
+
+    def update(self, cookies: dict | list):
+        """Update cookies from dict or list of tuples"""
+        if isinstance(cookies, dict):
+            self._cookies.update(cookies)
+        elif isinstance(cookies, list):
+            self._cookies.update(dict(cookies))
+
+    def get(self, name: str, default=None):
+        """Get a cookie value by name"""
+        return self._cookies.get(name, default)
+
+    @property
+    def jar(self):
+        """Return cookies as Cookie objects for iteration"""
+        return [Cookie(name, value) for name, value in self._cookies.items()]
+
+    def __iter__(self):
+        """Iterate over cookie items"""
+        return iter(self._cookies.items())
+
+    def __setitem__(self, key, value):
+        """Set a cookie"""
+        self._cookies[key] = value
+
+    def __getitem__(self, key):
+        """Get a cookie"""
+        return self._cookies[key]
+
+    def to_dict(self) -> dict:
+        """Return cookies as dictionary"""
+        return self._cookies.copy()
+
+    def from_response(self, response: Response):
+        """Extract cookies from response Set-Cookie headers"""
+        # rnet Response.headers might be a dict-like object or have get_list method
+        try:
+            # Try get_list first (common in some HTTP libraries)
+            set_cookie_headers = response.headers.get_list('set-cookie')
+        except AttributeError:
+            # Fall back to getting all set-cookie headers manually
+            # In case headers is a dict or multidict
+            headers_dict = dict(response.headers) if hasattr(response.headers, 'items') else response.headers
+            set_cookie_value = headers_dict.get('set-cookie') or headers_dict.get('Set-Cookie')
+            if set_cookie_value:
+                set_cookie_headers = [set_cookie_value] if isinstance(set_cookie_value, str) else set_cookie_value
+            else:
+                set_cookie_headers = []
+
+        if set_cookie_headers:
+            for cookie_str in set_cookie_headers:
+                # Parse cookie string
+                cookie = SimpleCookie()
+                try:
+                    cookie.load(cookie_str)
+                    for key, morsel in cookie.items():
+                        self._cookies[key] = morsel.value
+                except Exception:
+                    # If parsing fails, try simple key=value extraction
+                    if '=' in cookie_str:
+                        parts = cookie_str.split(';')[0].split('=', 1)
+                        if len(parts) == 2:
+                            self._cookies[parts[0].strip()] = parts[1].strip()
 from ..bookmark import BookmarkFolder
 from ..community import Community, CommunityMember
 from ..constants import TOKEN, DOMAIN
@@ -127,6 +208,9 @@ class Client:
         self._act_as = None
         self._emulation = emulation
 
+        # Create custom cookie jar for rnet
+        self.http.cookies = CookieJar()
+
         self.gql = GQLClient(self)
         self.v11 = V11Client(self)
 
@@ -155,8 +239,15 @@ class Client:
         tid = self.client_transaction.generate_transaction_id(method=method, path=urlparse(url).path)
         headers['X-Client-Transaction-Id'] = tid
 
+        # Inject cookies into request
+        if 'cookies' not in kwargs and self.http.cookies:
+            kwargs['cookies'] = self.http.cookies.to_dict()
+
         cookies_backup = self.get_cookies().copy()
         response = await self.http.request(method, url, headers=headers, **kwargs)
+
+        # Extract cookies from response
+        self.http.cookies.from_response(response)
         self._remove_duplicate_ct0_cookie()
 
         try:
@@ -241,12 +332,16 @@ class Client:
     def proxy(self, url: str) -> None:
         ':meta private:'
         self._proxy = url
+        # Save cookies before recreating client
+        cookies_backup = self.http.cookies
         # Recreate client with new proxy
         self.http = RnetClient(
             proxy=url,
             emulation=self._emulation,
             tls_info=True
         )
+        # Restore cookies
+        self.http.cookies = cookies_backup
 
     def _get_csrf_token(self) -> str:
         """
