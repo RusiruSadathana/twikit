@@ -13,8 +13,7 @@ from urllib.parse import urlparse
 
 import filetype
 import pyotp
-from rnet import Client as RnetClient, Response
-from rnet.emulation import Emulation, EmulationOption
+from rnet import Client as RnetClient, Response, Emulation
 
 from .._captcha import Capsolver
 
