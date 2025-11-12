@@ -103,9 +103,10 @@ class CookieJar:
 class ResponseWrapper:
     """Wrapper to provide httpx-compatible Response interface over rnet's Response"""
 
-    def __init__(self, rnet_response: Response, text_content: str = None, json_content: dict = None):
+    def __init__(self, rnet_response: Response, text_content: str = None, bytes_content: bytes = None, json_content: dict = None):
         self._response = rnet_response
         self._text_content = text_content
+        self._bytes_content = bytes_content
         self._json_content = json_content
 
     @property
@@ -136,6 +137,13 @@ class ResponseWrapper:
             raise RuntimeError("Response text not loaded. This should not happen.")
         return self._text_content
 
+    @property
+    def content(self) -> bytes:
+        """Get response content as bytes (httpx compatibility - synchronous property)"""
+        if self._bytes_content is None:
+            raise RuntimeError("Response content not loaded. This should not happen.")
+        return self._bytes_content
+
     def json(self):
         """Get response as JSON (httpx compatibility - synchronous method)"""
         if self._json_content is not None:
@@ -146,7 +154,7 @@ class ResponseWrapper:
 
     async def read(self):
         """Get response as bytes (httpx compatibility for .read())"""
-        return await self._response.bytes()
+        return self._bytes_content
 
     async def __aenter__(self):
         return self
@@ -198,8 +206,16 @@ class AsyncClient:
 
     async def _wrap_response(self, resp: Response) -> ResponseWrapper:
         """Wrap rnet Response and eagerly fetch body for httpx compatibility"""
-        # Fetch the response body as text (needed for sync access in httpx compatibility)
-        text_content = await resp.text()
+        # Fetch both text and bytes for httpx compatibility
+        # rnet's text() and bytes() are async, but httpx expects sync properties
+        bytes_content = await resp.bytes()
+
+        # Decode bytes to text
+        try:
+            text_content = bytes_content.decode('utf-8')
+        except UnicodeDecodeError:
+            # Fallback to latin-1 if UTF-8 fails
+            text_content = bytes_content.decode('latin-1')
 
         # Try to parse as JSON if possible
         json_content = None
@@ -210,7 +226,7 @@ class AsyncClient:
             # Not JSON, that's fine
             pass
 
-        return ResponseWrapper(resp, text_content=text_content, json_content=json_content)
+        return ResponseWrapper(resp, text_content=text_content, bytes_content=bytes_content, json_content=json_content)
 
     async def request(self, method: str, url: str, **kwargs) -> ResponseWrapper:
         """Make an HTTP request"""
