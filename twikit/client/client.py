@@ -112,11 +112,13 @@ class ResponseWrapper:
     @property
     def status_code(self) -> int:
         """httpx compatibility: status_code maps to status"""
-        return self._response.status
+        # rnet returns StatusCode enum, need to convert to int
+        return self._response.status.as_int()
 
     @property
     def status(self) -> int:
-        return self._response.status
+        """Return status as int (rnet returns StatusCode enum)"""
+        return self._response.status.as_int()
 
     @property
     def headers(self):
