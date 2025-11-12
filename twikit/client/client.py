@@ -208,8 +208,8 @@ class Client:
         self._act_as = None
         self._emulation = emulation
 
-        # Create custom cookie jar for rnet
-        self.http.cookies = CookieJar()
+        # Create custom cookie jar for rnet (stored separately, not on http client)
+        self._cookies = CookieJar()
 
         self.gql = GQLClient(self)
         self.v11 = V11Client(self)
@@ -240,14 +240,14 @@ class Client:
         headers['X-Client-Transaction-Id'] = tid
 
         # Inject cookies into request
-        if 'cookies' not in kwargs and self.http.cookies:
-            kwargs['cookies'] = self.http.cookies.to_dict()
+        if 'cookies' not in kwargs and self._cookies:
+            kwargs['cookies'] = self._cookies.to_dict()
 
         cookies_backup = self.get_cookies().copy()
         response = await self.http.request(method, url, headers=headers, **kwargs)
 
         # Extract cookies from response
-        self.http.cookies.from_response(response)
+        self._cookies.from_response(response)
         self._remove_duplicate_ct0_cookie()
 
         try:
@@ -317,11 +317,12 @@ class Client:
 
     def _remove_duplicate_ct0_cookie(self) -> None:
         cookies = {}
-        for cookie in self.http.cookies.jar:
+        for cookie in self._cookies.jar:
             if 'ct0' in cookies and cookie.name == 'ct0':
                 continue
             cookies[cookie.name] = cookie.value
-        self.http.cookies = list(cookies.items())
+        self._cookies.clear()
+        self._cookies.update(cookies)
 
     @property
     def proxy(self) -> str:
@@ -332,16 +333,12 @@ class Client:
     def proxy(self, url: str) -> None:
         ':meta private:'
         self._proxy = url
-        # Save cookies before recreating client
-        cookies_backup = self.http.cookies
-        # Recreate client with new proxy
+        # Recreate client with new proxy (cookies are stored separately, so they're preserved)
         self.http = RnetClient(
             proxy=url,
             emulation=self._emulation,
             tls_info=True
         )
-        # Restore cookies
-        self.http.cookies = cookies_backup
 
     def _get_csrf_token(self) -> str:
         """
@@ -353,7 +350,7 @@ class Client:
         :class:`str`
             The CSRF token as a string.
         """
-        return self.http.cookies.get('ct0')
+        return self._cookies.get('ct0')
 
     @property
     def _base_headers(self) -> dict[str, str]:
@@ -437,7 +434,7 @@ class Client:
         ...     password='00000000'
         ... )
         """
-        self.http.cookies.clear()
+        self._cookies.clear()
 
         if cookies_file and os.path.exists(cookies_file):
             self.load_cookies(cookies_file)
@@ -681,7 +678,7 @@ class Client:
         .load_cookies
         .save_cookies
         """
-        return dict(self.http.cookies)
+        return self._cookies.to_dict()
 
     def save_cookies(self, path: str) -> None:
         """
@@ -729,8 +726,8 @@ class Client:
         .save_cookies
         """
         if clear_cookies:
-            self.http.cookies.clear()
-        self.http.cookies.update(cookies)
+            self._cookies.clear()
+        self._cookies.update(cookies)
 
     def load_cookies(self, path: str) -> None:
         """

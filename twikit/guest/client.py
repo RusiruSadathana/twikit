@@ -105,8 +105,8 @@ class GuestClient:
         self._guest_token: str | None = None  # set when activate method is called
         self._emulation = emulation
 
-        # Create custom cookie jar for rnet
-        self.http.cookies = CookieJar()
+        # Create custom cookie jar for rnet (stored separately, not on http client)
+        self._cookies = CookieJar()
 
         self.gql = GQLClient(self)
         self.v11 = V11Client(self)
@@ -123,7 +123,7 @@ class GuestClient:
         headers = kwargs.pop('headers', {})
 
         if not self.client_transaction.home_page_response:
-            cookies_backup = self.http.cookies.to_dict().copy()
+            cookies_backup = self._cookies.to_dict().copy()
             ct_headers = {
                 'Accept-Language': f'{self.language},{self.language.split("-")[0]};q=0.9',
                 'Cache-Control': 'no-cache',
@@ -131,20 +131,20 @@ class GuestClient:
                 'User-Agent': self._user_agent
             }
             await self.client_transaction.init(self.http, ct_headers)
-            self.http.cookies.clear()
-            self.http.cookies.update(cookies_backup)
+            self._cookies.clear()
+            self._cookies.update(cookies_backup)
 
         tid = self.client_transaction.generate_transaction_id(method=method, path=urlparse(url).path)
         headers['X-Client-Transaction-Id'] = tid
 
         # Inject cookies into request
-        if 'cookies' not in kwargs and self.http.cookies:
-            kwargs['cookies'] = self.http.cookies.to_dict()
+        if 'cookies' not in kwargs and self._cookies:
+            kwargs['cookies'] = self._cookies.to_dict()
 
         response = await self.http.request(method, url, headers=headers, **kwargs)
 
         # Extract cookies from response
-        self.http.cookies.from_response(response)
+        self._cookies.from_response(response)
 
         try:
             response_data = response.json()
@@ -191,16 +191,12 @@ class GuestClient:
     def proxy(self, url: str) -> None:
         ':meta private:'
         self._proxy = url
-        # Save cookies before recreating client
-        cookies_backup = self.http.cookies
-        # Recreate client with new proxy
+        # Recreate client with new proxy (cookies are stored separately, so they're preserved)
         self.http = RnetClient(
             proxy=url,
             emulation=self._emulation,
             tls_info=True
         )
-        # Restore cookies
-        self.http.cookies = cookies_backup
 
     @property
     def _base_headers(self) -> dict[str, str]:
