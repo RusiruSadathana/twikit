@@ -769,7 +769,8 @@ class Client:
         .load_cookies
         .save_cookies
         """
-        return dict(self.http.cookies)
+        # Use .items() to get (name, value) tuples instead of Cookie objects
+        return dict(self.http.cookies.items())
 
     def save_cookies(self, path: str) -> None:
         """
