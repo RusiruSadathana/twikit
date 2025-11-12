@@ -167,7 +167,8 @@ class GuestClient:
             # Handle both property and method for .text
             response_data = await response.text() if callable(getattr(response, 'text', None)) else response.text
 
-        status_code = response.status_code
+        # rnet.Response uses .status instead of .status_code
+        status_code = response.status
 
         if status_code >= 400 and raise_exception:
             response_text = await response.text() if callable(getattr(response, 'text', None)) else response.text
